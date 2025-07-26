@@ -12,6 +12,11 @@ router.use(isAuthenticated, isAdmin);
 // Dashboard
 router.get('/admin', (req, res) => res.render('admin/dashboard'));
 
+// Incidencia
+router.get('/admin/incidencias', (req, res) => {
+  res.render('admin/Incidencias');
+});
+
 // CRUD Empleados
 router.get('/admin/employees', async (req, res) => {
   const list = await Employee.find().populate('scheduleId');
