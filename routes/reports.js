@@ -1,168 +1,238 @@
-const express  = require('express');
-const Record   = require('../models/Record');
+const express = require('express');
+const Record = require('../models/Record');
 const Employee = require('../models/Employee');
-const Schedule = require('../models/Schedule');  // <- Asegúrate de esto
-const ExcelJS  = require('exceljs');
-const moment   = require('moment');
-const router   = express.Router();
+const ExcelJS = require('exceljs');
+const mongoose = require('mongoose');
+const router = express.Router();
 
-// Mostrar form de filtros
+
+function buildRecordsPipeline(matchConditions = {}) {
+  return [
+    ...(Object.keys(matchConditions).length > 0 ? [{ '$match': matchConditions }] : []),
+    
+    {
+      '$lookup': {
+        'from': 'employees', 
+        'localField': 'employeeId', 
+        'foreignField': '_id', 
+        'as': 'employee'
+      }
+    },
+    {
+      '$unwind': '$employee'
+    },
+    {
+      '$addFields': {
+        'dateOnly': {
+          '$dateToString': {
+            'format': '%Y-%m-%d',
+            'date': '$timestamp'
+          }
+        }
+      }
+    },
+    {
+      '$sort': {
+        'dateOnly': -1,
+        'employee._id': 1,
+        'timestamp': -1
+      }
+    },
+    {
+      '$group': {
+        '_id': '$employee._id',
+        'employee_info': { '$first': '$employee' },
+        'records': {
+          '$push': {
+            'timestamp': '$timestamp',
+            'type': '$type',
+            'recordId': '$_id',
+            'dateOnly': '$dateOnly'
+          }
+        },
+        'total_records': { '$sum': 1 }
+      }
+    },
+    {
+      '$unwind': '$records'
+    },
+    {
+      '$project': {
+        '_id': '$records.recordId',
+        'timestamp': '$records.timestamp',
+        'type': '$records.type',
+        'employee': '$employee_info',
+        'employeeId': '$_id',
+        'dateOnly': '$records.dateOnly'
+      }
+    },
+    {
+      '$sort': {
+        'dateOnly': -1,
+        'employee._id': 1,
+        'timestamp': 1
+      }
+    }
+  ];
+}
+
 router.get('/reports', async (req, res) => {
-  const employees = await Employee.find().select('code name');
-  res.render('reports', { employees, report: null, filters: {} });
+  const employees = await Employee.find().select('code name').sort({ name: 1 });
+  res.render('reports', { employees, records: null, filters: {} });
 });
 
-// Generar reporte
+
 router.post('/reports', async (req, res) => {
   const { startDate, endDate, employeeId } = req.body;
   const filters = { startDate, endDate, employeeId };
 
-  const match = { timestamp: { $gte: new Date(startDate), $lte: new Date(endDate + 'T23:59:59') } };
-  if (employeeId) match.employeeId = employeeId;
 
-  const records = await Record.find(match)
-    .sort({ timestamp: 1 })
-    .populate({ path: 'employeeId', select: 'code name scheduleId', populate: { path: 'scheduleId', model: 'Schedule' } });
+  let matchConditions = {};
+  
+  if (startDate || endDate) {
+    matchConditions.timestamp = {};
+    if (startDate) {
+      matchConditions.timestamp.$gte = new Date(startDate + 'T00:00:00.000Z');
+    }
+    if (endDate) {
+      matchConditions.timestamp.$lte = new Date(endDate + 'T23:59:59.999Z');
+    }
+  }
+  
+  if (employeeId) {
+    if (mongoose.Types.ObjectId.isValid(employeeId)) {
+      matchConditions.employeeId = new mongoose.Types.ObjectId(employeeId);
+    }
+  }
 
-  const data = {};
-  records.forEach(r => {
-    const code = r.employeeId.code;
-    const day  = moment(r.timestamp).format('YYYY-MM-DD');
-    data[code] = data[code] || {};
-    data[code][day] = data[code][day] || [];
-    data[code][day].push(r);
-  });
+  const pipeline = buildRecordsPipeline(matchConditions);
+  const records = await Record.aggregate(pipeline);
 
-  const report = [];
-  Object.entries(data).forEach(([code, days]) => {
-    Object.entries(days).forEach(([day, recs]) => {
-      const empPop = recs[0].employeeId;
-      if (!empPop || !empPop.scheduleId) return;
-      const sch = empPop.scheduleId;
-      const startM = moment(`${day} ${sch.startTime}`, 'YYYY-MM-DD HH:mm');
-      const endM   = moment(`${day} ${sch.endTime}`,   'YYYY-MM-DD HH:mm');
-
-      const tIn       = recs.find(r => r.type==='in')?.timestamp;
-      const tLunchOut = recs.find(r => r.type==='lunchOut')?.timestamp;
-      const tLunchIn  = recs.find(r => r.type==='lunchIn')?.timestamp;
-      const tOut      = recs.find(r => r.type==='out')?.timestamp;
-
-      const tardanza       = tIn && moment(tIn).isAfter(startM);
-      const salidaTemprana = tOut && moment(tOut).isBefore(endM);
-      let almuerzoLargo    = false;
-      if (tLunchOut && tLunchIn) {
-        almuerzoLargo = moment(tLunchIn).diff(moment(tLunchOut),'minutes')>sch.lunchDuration;
-      }
-      let sobretiempo = 0;
-      if (tIn && tOut) {
-        const workedMin = moment(tOut).diff(moment(tIn),'minutes')-sch.lunchDuration;
-        const overMin = workedMin - (8*60);
-        if (overMin>0) sobretiempo = Math.ceil(overMin/30)*0.5;
-      }
-
-      report.push({ date: day, code, name: empPop.name, tardanza, salidaTemprana, almuerzoLargo, sobretiempo });
-    });
-  });
-
-  const employees = await Employee.find().select('code name');
-  res.render('reports', { employees, report, filters });
+  const employees = await Employee.find().select('code name').sort({ name: 1 });
+  res.render('reports', { employees, records, filters });
 });
+
 
 router.post('/reports/export', async (req, res) => {
   const { startDate, endDate, employeeId } = req.body;
 
-  // Reconstruir los mismos filtros que usas en POST /reports
-  const match = {
-    timestamp: {
-      $gte: new Date(startDate),
-      $lte: new Date(endDate + 'T23:59:59')
+
+  let matchConditions = {};
+  
+  if (startDate || endDate) {
+    matchConditions.timestamp = {};
+    if (startDate) {
+      matchConditions.timestamp.$gte = new Date(startDate + 'T00:00:00.000Z');
     }
-  };
-  if (employeeId) match.employeeId = employeeId;
+    if (endDate) {
+      matchConditions.timestamp.$lte = new Date(endDate + 'T23:59:59.999Z');
+    }
+  }
+  
+  if (employeeId) {
+    if (mongoose.Types.ObjectId.isValid(employeeId)) {
+      matchConditions.employeeId = new mongoose.Types.ObjectId(employeeId);
+    }
+  }
 
-  // Consulta y populate idéntico al de tu ruta de reportes
-  const records = await Record.find(match)
-    .sort({ timestamp: 1 })
-    .populate({
-      path: 'employeeId',
-      select: 'code name scheduleId',
-      populate: { path: 'scheduleId', model: 'Schedule' }
-    });
+  const pipeline = buildRecordsPipeline(matchConditions);
+  const records = await Record.aggregate(pipeline);
 
-  // Agrega aquí el mismo agrupamiento/lógica de cálculo que tienes en POST /reports
-  const data = {};
-  records.forEach(r => {
-    const code = r.employeeId.code;
-    const day  = moment(r.timestamp).format('YYYY-MM-DD');
-    data[code] = data[code] || {};
-    data[code][day] = data[code][day] || [];
-    data[code][day].push(r);
-  });
-  const report = [];
-  Object.entries(data).forEach(([code, days]) => {
-    Object.entries(days).forEach(([day, recs]) => {
-      const empPop = recs[0].employeeId;
-      if (!empPop || !empPop.scheduleId) return;
-      const sch = empPop.scheduleId;
-      const startM = moment(`${day} ${sch.startTime}`, 'YYYY-MM-DD HH:mm');
-      const endM   = moment(`${day} ${sch.endTime}`,   'YYYY-MM-DD HH:mm');
 
-      const tIn       = recs.find(r => r.type==='in')?.timestamp;
-      const tLunchOut = recs.find(r => r.type==='lunchOut')?.timestamp;
-      const tLunchIn  = recs.find(r => r.type==='lunchIn')?.timestamp;
-      const tOut      = recs.find(r => r.type==='out')?.timestamp;
-
-      const tardanza       = tIn       && moment(tIn).isAfter(startM);
-      const salidaTemprana = tOut      && moment(tOut).isBefore(endM);
-      let almuerzoLargo    = false;
-      if (tLunchOut && tLunchIn) {
-        almuerzoLargo = moment(tLunchIn).diff(moment(tLunchOut), 'minutes') > sch.lunchDuration;
-      }
-      let sobretiempo = 0;
-      if (tIn && tOut) {
-        const workedMin = moment(tOut).diff(moment(tIn), 'minutes') - sch.lunchDuration;
-        const overMin   = workedMin - (8*60);
-        if (overMin > 0) sobretiempo = Math.ceil(overMin/30) * 0.5;
-      }
-
-      report.push({ date: day, code, name: empPop.name, tardanza, salidaTemprana, almuerzoLargo, sobretiempo });
-    });
-  });
-
-  // Generar el archivo Excel
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Reporte');
+  const ws = wb.addWorksheet('Registros de Marcaciones');
+  
+
   ws.columns = [
-    { header: 'Fecha',            key: 'date',           width: 12 },
-    { header: 'Código',           key: 'code',           width: 10 },
-    { header: 'Nombre',           key: 'name',           width: 20 },
-    { header: 'Tardanza',         key: 'tardanza',       width: 10 },
-    { header: 'Salida Temprana',  key: 'salidaTemprana', width: 15 },
-    { header: 'Almuerzo Largo',   key: 'almuerzoLargo',  width: 15 },
-    { header: 'Sobretiempo (hrs)',key: 'sobretiempo',    width: 15 },
+    { header: 'Fecha y Hora', key: 'timestamp', width: 20 },
+    { header: 'Fecha', key: 'date', width: 12 },
+    { header: 'Hora', key: 'time', width: 10 },
+    { header: 'Código Empleado', key: 'code', width: 15 },
+    { header: 'Nombre Empleado', key: 'name', width: 25 },
+    { header: 'Tipo de Marcación', key: 'type', width: 18 }
   ];
-  report.forEach(r => {
+
+
+  ws.getRow(1).font = { bold: true };
+  ws.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF4472C4' }
+  };
+  ws.getRow(1).font.color = { argb: 'FFFFFFFF' };
+
+
+  records.forEach(r => {
+    const date = new Date(r.timestamp);
+    
+
+    let typeSpanish = '';
+    switch(r.type) {
+      case 'in': typeSpanish = 'Entrada'; break;
+      case 'out': typeSpanish = 'Salida'; break;
+      case 'lunchOut': typeSpanish = 'Salida Almuerzo'; break;
+      case 'lunchIn': typeSpanish = 'Regreso Almuerzo'; break;
+      default: typeSpanish = r.type;
+    }
+
     ws.addRow({
-      date: r.date,
-      code: r.code,
-      name: r.name,
-      tardanza: r.tardanza ? 'Sí' : 'No',
-      salidaTemprana: r.salidaTemprana ? 'Sí' : 'No',
-      almuerzoLargo: r.almuerzoLargo ? 'Sí' : 'No',
-      sobretiempo: r.sobretiempo
+      timestamp: date.toLocaleString('es-ES'),
+      date: date.toLocaleDateString('es-ES'),
+      time: date.toLocaleTimeString('es-ES'),
+      code: r.employee.code,
+      name: r.employee.name,
+      type: typeSpanish
     });
   });
 
-  // Enviar como descarga
-  res.setHeader('Content-Disposition',
-    `attachment; filename=reporte_${startDate}_a_${endDate}.xlsx`);
-  res.setHeader('Content-Type',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  // Add borders to all cells
+  ws.eachRow((row, rowNumber) => {
+    row.eachCell((cell, colNumber) => {
+      cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+    });
+  });
+
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber > 1) { // Skip header
+      const typeCell = row.getCell(6);
+      switch(typeCell.value) {
+        case 'Entrada':
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD4EDDA' } };
+          break;
+        case 'Salida':
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8D7DA' } };
+          break;
+        case 'Salida Almuerzo':
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEAA7' } };
+          break;
+        case 'Regreso Almuerzo':
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1ECF1' } };
+          break;
+      }
+    }
+  });
+
+  ws.columns.forEach(column => {
+    let maxLength = 0;
+    column.eachCell({ includeEmpty: true }, cell => {
+      if (cell.value) {
+        maxLength = Math.max(maxLength, cell.value.toString().length);
+      }
+    });
+    column.width = Math.min(Math.max(maxLength + 2, 10), 50);
+  });
+
+  const filename = `marcaciones_${startDate || 'inicio'}_a_${endDate || 'fin'}.xlsx`;
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
   await wb.xlsx.write(res);
   res.end();
 });
-// ───────────────────────────────────────────────────────────────────
 
-// Este debe ser el último statement en el archivo
 module.exports = router;

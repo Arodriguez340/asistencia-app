@@ -119,8 +119,7 @@ router.get('/admin/records', async (req, res) => {
       }
     },{
     '$sort': {
-      'dateOnly': -1,        // Group by date first (newest first)
-      'employee._id': 1,
+      'dateOnly': -1,      
       'timestamp': -1
     }
   }, {
@@ -154,7 +153,7 @@ router.get('/admin/records', async (req, res) => {
     }
   },{
       '$sort': {
-        'dateOnly': -1,        // Maintain date grouping (newest first)
+        'dateOnly': -1,        
         'employee._id': 1,
         'timestamp': -1,
       }

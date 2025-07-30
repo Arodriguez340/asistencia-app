@@ -1,57 +1,245 @@
 <%- include('partials/header', { title: 'Reportes', user: user }) %>
 <div class="container py-5">
-  <h1>Reportes</h1>
-  <form class="row g-3 mb-4" action="/reports" method="POST">
-    <div class="col-md-3">
-      <label>Desde</label>
-      <input type="date" name="startDate" class="form-control" value="<%= filters.startDate %>" required>
+  <h1><i class="fas fa-file-alt"></i> Reportes de Marcaciones</h1>
+
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5 class="mb-0">
+        <i class="fas fa-filter"></i> Filtros de Búsqueda
+      </h5>
     </div>
-    <div class="col-md-3">
-      <label>Hasta</label>
-      <input type="date" name="endDate" class="form-control" value="<%= filters.endDate %>" required>
+    <div class="card-body">
+      <form class="row g-3" action="/reports" method="POST">
+        <div class="col-md-3">
+          <label class="form-label">
+            <i class="fas fa-calendar-alt"></i> Fecha Inicio
+          </label>
+          <input type="date" name="startDate" class="form-control" value="<%= filters.startDate || '' %>">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">
+            <i class="fas fa-calendar-alt"></i> Fecha Fin
+          </label>
+          <input type="date" name="endDate" class="form-control" value="<%= filters.endDate || '' %>">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">
+            <i class="fas fa-user"></i> Empleado
+          </label>
+          <select name="employeeId" class="form-select">
+            <option value="">Todos los empleados</option>
+            <% employees.forEach(emp => { %>
+              <option value="<%= emp._id %>" <%= filters.employeeId === String(emp._id) ? 'selected' : '' %>>
+                <%= emp.code %> - <%= emp.name %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="col-md-2 align-self-end">
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="fas fa-search"></i> Buscar
+          </button>
+        </div>
+      </form>
     </div>
-    <div class="col-md-4">
-      <label>Empleado</label>
-      <select name="employeeId" class="form-select">
-        <option value="">Todos</option>
-        <% employees.forEach(emp => { %>
-          <option value="<%= emp._id %>" <%= filters.employeeId===String(emp._id)?'selected':'' %>><%= emp.code %> - <%= emp.name %></option>
-        <% }) %>
-      </select>
+  </div>
+
+  <% if (records && records.length > 0) { %>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <span class="text-muted">
+          <i class="fas fa-list"></i> 
+          Total de marcaciones: <strong><%= records.length %></strong>
+        </span>
+        <% if (filters.startDate && filters.endDate) { %>
+          <span class="badge bg-light text-dark ms-2">
+            <i class="fas fa-calendar-week"></i> <%= filters.startDate %> al <%= filters.endDate %>
+          </span>
+        <% } else if (filters.startDate) { %>
+          <span class="badge bg-light text-dark ms-2">
+            <i class="fas fa-calendar-week"></i> Desde <%= filters.startDate %>
+          </span>
+        <% } else if (filters.endDate) { %>
+          <span class="badge bg-light text-dark ms-2">
+            <i class="fas fa-calendar-week"></i> Hasta <%= filters.endDate %>
+          </span>
+        <% } %>
+        <% if (filters.employeeId) { %>
+          <span class="badge bg-info text-white ms-1">
+            <i class="fas fa-user"></i> Empleado específico
+          </span>
+        <% } %>
+      </div>
+      <form action="/reports/export" method="POST" class="d-inline">
+        <input type="hidden" name="startDate" value="<%= filters.startDate || '' %>">
+        <input type="hidden" name="endDate" value="<%= filters.endDate || '' %>">
+        <input type="hidden" name="employeeId" value="<%= filters.employeeId || '' %>">
+        <button type="submit" class="btn btn-success">
+          <i class="fas fa-file-excel"></i> Exportar a Excel
+        </button>
+      </form>
     </div>
-    <div class="col-md-2 align-self-end">
-      <button class="btn btn-primary w-100">Generar</button>
+
+    <div class="row mb-4">
+      <% 
+      const typeCounts = {
+        in: records.filter(r => r.type === 'in').length,
+        out: records.filter(r => r.type === 'out').length,
+        lunchOut: records.filter(r => r.type === 'lunchOut').length,
+        lunchIn: records.filter(r => r.type === 'lunchIn').length
+      };
+      %>
+      <div class="col-md-3">
+        <div class="card bg-success text-white">
+          <div class="card-body text-center">
+            <h4><%= typeCounts.in %></h4>
+            <small><i class="fas fa-sign-in-alt"></i> Entradas</small>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card bg-danger text-white">
+          <div class="card-body text-center">
+            <h4><%= typeCounts.out %></h4>
+            <small><i class="fas fa-sign-out-alt"></i> Salidas</small>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card bg-warning text-dark">
+          <div class="card-body text-center">
+            <h4><%= typeCounts.lunchOut %></h4>
+            <small><i class="fas fa-utensils"></i> Salidas Almuerzo</small>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card bg-info text-white">
+          <div class="card-body text-center">
+            <h4><%= typeCounts.lunchIn %></h4>
+            <small><i class="fas fa-utensils"></i> Regresos Almuerzo</small>
+          </div>
+        </div>
+      </div>
     </div>
-  </form>
-  <form action="/reports/export" method="POST" class="mb-3">
-  <input type="hidden" name="startDate" value="<%= filters.startDate %>">
-  <input type="hidden" name="endDate"   value="<%= filters.endDate   %>">
-  <input type="hidden" name="employeeId" value="<%= filters.employeeId||'' %>">
-  <button type="submit" class="btn btn-outline-success">
-    📥 Exportar a Excel
-  </button>
-</form>
-  <% if (report) { %>
-    <% if (report.length) { %>
-    <table class="table table-striped">
-      <thead><tr><th>Fecha</th><th>Código</th><th>Nombre</th><th>Tardanza</th><th>Salida Temprana</th><th>Almuerzo Largo</th><th>Sobretiempo</th></tr></thead>
-      <tbody>
-        <% report.forEach(r => { %>
-        <tr>
-          <td><%= r.date %></td>
-          <td><%= r.code %></td>
-          <td><%= r.name %></td>
-          <td><%= r.tardanza?'Sí':'No' %></td>
-          <td><%= r.salidaTemprana?'Sí':'No' %></td>
-          <td><%= r.almuerzoLargo?'Sí':'No' %></td>
-          <td><%= r.sobretiempo %></td>
-        </tr>
-        <% }) %>
-      </tbody>
-    </table>
-    <% } else { %>
-      <div class="alert alert-info">No hay datos para mostrar.</div>
-    <% } %>
+  <% } %>
+
+
+  <% if (records !== null) { %>
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">
+          <i class="fas fa-table"></i> Registros de Marcaciones
+        </h5>
+      </div>
+      <div class="card-body">
+        <% if (records.length > 0) { %>
+          <div class="table-responsive">
+            <table class="table table-striped table-hover">
+              <thead class="table-dark">
+                <tr>
+                  <th><i class="fas fa-clock"></i> Fecha y Hora</th>
+                  <th><i class="fas fa-id-badge"></i> Código</th>
+                  <th><i class="fas fa-user"></i> Nombre</th>
+                  <th><i class="fas fa-tag"></i> Tipo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% 
+                let currentDate = '';
+                let currentEmployee = '';
+                %>
+                <% records.forEach(r => { 
+                  const recordDate = new Date(r.timestamp).toLocaleDateString('es-ES');
+                  const employeeKey = r.employee._id.toString();
+                  
+                  // Show date header when date changes
+                  if (currentDate !== recordDate) {
+                    currentDate = recordDate;
+                    currentEmployee = ''; // Reset employee when date changes
+                %>
+                  <tr class="table-primary">
+                    <td colspan="4">
+                      <strong><i class="fas fa-calendar-day"></i> <%= recordDate %></strong>
+                    </td>
+                  </tr>
+                <% 
+                  }
+                  
+                  // Show employee header when employee changes within the same date
+                  if (currentEmployee !== employeeKey) {
+                    currentEmployee = employeeKey;
+                %>
+                  <tr class="table-secondary">
+                    <td colspan="4">
+                      &nbsp;&nbsp;<strong><i class="fas fa-user"></i> <%= r.employee.name %> (<%= r.employee.code %>)</strong>
+                    </td>
+                  </tr>
+                <% } %>
+                
+
+                <tr>
+                  <td>&nbsp;&nbsp;&nbsp;&nbsp;<%= new Date(r.timestamp).toLocaleString('es-ES') %></td>
+                  <td><%= r.employee.code %></td>
+                  <td><%= r.employee.name %></td>
+                  <td>
+                    <% 
+                    let typeClass = '';
+                    let typeIcon = '';
+                    let typeText = '';
+                    switch(r.type) {
+                      case 'in':
+                        typeClass = 'success';
+                        typeIcon = 'sign-in-alt';
+                        typeText = 'Entrada';
+                        break;
+                      case 'out':
+                        typeClass = 'danger';
+                        typeIcon = 'sign-out-alt';
+                        typeText = 'Salida';
+                        break;
+                      case 'lunchOut':
+                        typeClass = 'warning';
+                        typeIcon = 'utensils';
+                        typeText = 'Salida Almuerzo';
+                        break;
+                      case 'lunchIn':
+                        typeClass = 'info';
+                        typeIcon = 'utensils';
+                        typeText = 'Regreso Almuerzo';
+                        break;
+                      default:
+                        typeClass = 'secondary';
+                        typeIcon = 'question';
+                        typeText = r.type;
+                    }
+                    %>
+                    <span class="badge bg-<%= typeClass %>">
+                      <i class="fas fa-<%= typeIcon %>"></i> <%= typeText %>
+                    </span>
+                  </td>
+                </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <div class="alert alert-info text-center">
+            <i class="fas fa-info-circle fa-2x mb-2"></i>
+            <h5>No se encontraron marcaciones</h5>
+            <p class="mb-0">No hay registros que coincidan con los filtros seleccionados.</p>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="card">
+      <div class="card-body text-center py-5">
+        <i class="fas fa-search fa-3x text-muted mb-3"></i>
+        <h5 class="text-muted">Buscar Marcaciones</h5>
+        <p class="text-muted">Utilice los filtros para buscar y generar reportes de marcaciones de empleados.</p>
+      </div>
+    </div>
   <% } %>
 </div>
 <%- include('partials/footer') %>
