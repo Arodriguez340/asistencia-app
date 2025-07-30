@@ -72,14 +72,9 @@ Sigue estos pasos para configurar y ejecutar el proyecto en tu máquina local:
     ```
 
 3.  **Configura las variables de entorno:**
-    Crea un archivo `.env` en la raíz del proyecto con el siguiente contenido (o similar, según tu configuración):
+    Crea un archivo `.env` en la raíz del proyecto para tus variables de entorno esenciales (por ejemplo, la URL de conexión a MongoDB, el puerto del servidor y una clave secreta para las sesiones).
 
-    ```
-    MONGO_URI=mongodb://localhost:27017/asisti_gestion_db
-    PORT=3000
-    SESSION_SECRET=tu_secreto_muy_seguro_aqui
-    ```
-    *(**Importante:** Cambia `tu_secreto_muy_seguro_aqui` por una cadena de caracteres única y compleja para la seguridad de tus sesiones.)*
+    *(**Importante:** Asegúrate de que el archivo `.env` **no** se suba a tu repositorio público. Puedes añadirlo a tu `.gitignore`.)*
 
 ---
 
