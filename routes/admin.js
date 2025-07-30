@@ -5,6 +5,7 @@ const Employee   = require('../models/Employee');
 const Schedule   = require('../models/Schedule');
 const Record     = require('../models/Record');
 const moment     = require('moment');
+const mongoose = require('mongoose');
 
 // Protección
 router.use(isAuthenticated, isAdmin);
@@ -68,9 +69,100 @@ router.delete('/admin/schedules/:id', async (req, res) => {
 });
 
 // Revisión de Marcaciones
+// router.get('/admin/records', async (req, res) => {
+//   const recs = await Record.find().sort({ timestamp:-1 }).populate({ path:'employeeId', select:'code name' });
+//   res.render('admin/records', { recs });
+// });
+
 router.get('/admin/records', async (req, res) => {
-  const recs = await Record.find().sort({ timestamp:-1 }).populate({ path:'employeeId', select:'code name' });
-  res.render('admin/records', { recs });
+  const { startDate, endDate, employeeId } = req.query;
+  let matchConditions = {};
+
+  if (startDate || endDate) {
+    matchConditions.timestamp = {};
+    if (startDate) {
+      matchConditions.timestamp.$gte = new Date(startDate + 'T00:00:00.000Z');
+    }
+    if (endDate) {
+      matchConditions.timestamp.$lte = new Date(endDate + 'T23:59:59.999Z');
+    }
+  }
+
+   if (employeeId) {
+    matchConditions.employeeId = new mongoose.Types.ObjectId(employeeId);
+  }
+
+  const agg = [];
+
+  if (Object.keys(matchConditions).length > 0) {
+  agg.push({ '$match': matchConditions });
+}
+  agg.push(
+  {
+    '$lookup': {
+      'from': 'employees', 
+      'localField': 'employeeId', 
+      'foreignField': '_id', 
+      'as': 'employee'
+    }
+  }, 
+  {
+    '$unwind': '$employee'
+  },{
+      '$addFields': {
+        'dateOnly': {
+          '$dateToString': {
+            'format': '%Y-%m-%d',
+            'date': '$timestamp'
+          }
+        }
+      }
+    },{
+    '$sort': {
+      'dateOnly': -1,        // Group by date first (newest first)
+      'employee._id': 1,
+      'timestamp': -1
+    }
+  }, {
+    '$group': {
+      '_id': '$employee._id', 
+      'employee_info': {
+        '$first': '$employee'
+      }, 
+      'total_record': {
+        '$sum': 1
+      }, 
+      'records_found': {
+        '$push': {
+          'dateOnly': '$dateOnly',
+          'timestamp': '$timestamp', 
+          'stamp_type': '$type',
+          'recordId': '$_id'
+        }
+      }
+    }
+  },{
+    '$unwind': '$records_found'
+  },{
+    '$project': {
+        '_id': '$records_found.recordId',
+        'dateOnly': '$records_found.dateOnly',
+        'timestamp': '$records_found.timestamp',
+        'type': '$records_found.stamp_type',
+        'employee': '$employee_info',
+        'employeeId': '$_id'
+    }
+  },{
+      '$sort': {
+        'dateOnly': -1,        // Maintain date grouping (newest first)
+        'employee._id': 1,
+        'timestamp': -1,
+      }
+    });
+
+  const employees = await Employee.find({}).sort({ name: 1 });  
+  const recs = await Record.aggregate(agg);
+  res.render('admin/records', { recs, employees, filters: { startDate, endDate, employeeId } });
 });
 
 router.get('/admin/stats', isAuthenticated, isAdmin, async (req, res) => {

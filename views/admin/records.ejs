@@ -1,18 +1,188 @@
 <%- include('../partials/header', { title: 'Marcaciones', user: user }) %>
 <div class="container py-5">
   <h2>Marcaciones</h2>
-  <table class="table table-striped">
-    <thead><tr><th>Fecha</th><th>Código</th><th>Nombre</th><th>Tipo</th></tr></thead>
-    <tbody>
-      <% recs.forEach(r=>{ %>
-      <tr>
-        <td><%= new Date(r.timestamp).toLocaleString() %></td>
-        <td><%= r.employeeId.code %></td>
-        <td><%= r.employeeId.name %></td>
-        <td><%= r.type %></td>
-      </tr>
-      <% }) %>
-    </tbody>
-  </table>
+  
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5 class="mb-0">
+        <i class="fas fa-filter"></i> Filtros
+      </h5>
+    </div>
+    <div class="card-body">
+      <form method="GET" action="/admin/records">
+        <div class="row">
+          <div class="col-md-3">
+            <label for="startDate" class="form-label">Fecha Inicio</label>
+            <input 
+              type="date" 
+              class="form-control" 
+              id="startDate" 
+              name="startDate" 
+              value="<%= filters.startDate || '' %>"
+            >
+          </div>
+          <div class="col-md-3">
+            <label for="endDate" class="form-label">Fecha Fin</label>
+            <input 
+              type="date" 
+              class="form-control" 
+              id="endDate" 
+              name="endDate" 
+              value="<%= filters.endDate || '' %>"
+            >
+          </div>
+          <div class="col-md-4">
+            <label for="employeeId" class="form-label">Empleado</label>
+            <select class="form-control" id="employeeId" name="employeeId">
+              <option value="">Todos los empleados</option>
+              <% employees.forEach(employee => { %>
+                <option 
+                  value="<%= employee._id %>" 
+                  <%= filters.employeeId === employee._id.toString() ? 'selected' : '' %>
+                >
+                  <%= employee.name %> (<%= employee.code %>)
+                </option>
+              <% }) %>
+            </select>
+          </div>
+          <div class="col-md-2 d-flex align-items-end">
+            <div class="w-100">
+              <button type="submit" class="btn btn-primary w-100">
+                <i class="fas fa-search"></i> Filtrar
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="row mt-2">
+          <div class="col-md-12">
+            <a href="/admin/records" class="btn btn-secondary btn-sm">
+              <i class="fas fa-times"></i> Limpiar Filtros
+            </a>
+            <% if (filters.startDate || filters.endDate || filters.employeeId) { %>
+              <span class="badge bg-info ms-2">Filtros activos</span>
+            <% } %>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <div class="d-flex justify-content-between align-items-center">
+      <span class="text-muted">
+        <i class="fas fa-list"></i> 
+        Total de registros: <strong><%= recs.length %></strong>
+      </span>
+      <% if (filters.startDate || filters.endDate || filters.employeeId) { %>
+        <div class="text-end">
+          <small class="text-muted">Filtros aplicados:</small>
+          <% if (filters.startDate) { %>
+            <span class="badge bg-light text-dark ms-1">Desde: <%= filters.startDate %></span>
+          <% } %>
+          <% if (filters.endDate) { %>
+            <span class="badge bg-light text-dark ms-1">Hasta: <%= filters.endDate %></span>
+          <% } %>
+          <% if (filters.employeeId) { %>
+            <span class="badge bg-light text-dark ms-1">
+              Empleado: <%= recs[0]?.employee?.name || 'Seleccionado' %>
+            </span>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-striped table-hover">
+      <thead class="table-dark">
+        <tr>
+          <th><i class="fas fa-clock"></i> Fecha y Hora</th>
+          <th><i class="fas fa-id-badge"></i> Código</th>
+          <th><i class="fas fa-user"></i> Nombre</th>
+          <th><i class="fas fa-tag"></i> Tipo</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (recs.length === 0) { %>
+          <tr>
+            <td colspan="4" class="text-center text-muted py-4">
+              <i class="fas fa-info-circle"></i>
+              No se encontraron registros con los filtros aplicados.
+            </td>
+          </tr>
+        <% } else { %>
+          <% 
+          let currentDate = '';
+          let currentEmployee = '';
+          %>
+          <% recs.forEach(r => { 
+            const recordDate = new Date(r.timestamp).toLocaleDateString('es-ES');
+            const employeeKey = r.employee._id.toString();
+            
+            // Show date header when date changes
+            if (currentDate !== recordDate) {
+              currentDate = recordDate;
+              currentEmployee = ''; // Reset employee when date changes
+          %>
+            <tr class="table-primary">
+              <td colspan="4">
+                <strong><i class="fas fa-calendar-day"></i> <%= recordDate %></strong>
+              </td>
+            </tr>
+          <% 
+            }
+            
+            // Show employee header when employee changes within the same date
+            if (currentEmployee !== employeeKey) {
+              currentEmployee = employeeKey;
+          %>
+            <tr class="table-secondary">
+              <td colspan="4">
+                &nbsp;&nbsp;<strong><i class="fas fa-user"></i> <%= r.employee.name %> (<%= r.employee.code %>)</strong>
+              </td>
+            </tr>
+          <% } %>
+          
+          <!-- Individual record -->
+          <tr>
+            <td>&nbsp;&nbsp;&nbsp;&nbsp;<%= new Date(r.timestamp).toLocaleString('es-ES') %></td>
+            <td><%= r.employee.code %></td>
+            <td><%= r.employee.name %></td>
+            <td>
+              <% 
+              let typeClass = '';
+              let typeIcon = '';
+              switch(r.type) {
+                case 'in':
+                  typeClass = 'success';
+                  typeIcon = 'sign-in-alt';
+                  break;
+                case 'out':
+                  typeClass = 'danger';
+                  typeIcon = 'sign-out-alt';
+                  break;
+                case 'lunchOut':
+                  typeClass = 'warning';
+                  typeIcon = 'utensils';
+                  break;
+                case 'lunchIn':
+                  typeClass = 'info';
+                  typeIcon = 'utensils';
+                  break;
+                default:
+                  typeClass = 'secondary';
+                  typeIcon = 'question';
+              }
+              %>
+              <span class="badge bg-<%= typeClass %>">
+                <i class="fas fa-<%= typeIcon %>"></i> <%= r.type %>
+              </span>
+            </td>
+          </tr>
+          <% }) %>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
 </div>
 <%- include('../partials/footer') %>
