@@ -1,0 +1,9 @@
+#Variables de entorno
+.env
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
